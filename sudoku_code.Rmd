@@ -1,0 +1,545 @@
+---
+title: "**Sudoku Puzzles**"
+author: " Arun Kumar Jaganathan, Karthick Pandi, Lakshya Gazaresen, Michael David Gaughan, Poojanjali Vasu, Shubham Rajesh Khamitkar"
+output: 
+  html_document:   
+    code_download: yes
+    code_folding: hide
+    fig_height: 6
+    fig_width: 9
+  word_document: default
+runtime: shiny
+
+---
+<style type="text/css">
+
+body, td {
+   font-size: 12px;
+   text-align: justify;
+}
+code.r{
+  font-size: 10px;
+}
+pre {
+  font-size: 10px
+}
+h4.author { 
+    font-size: 14px;
+  font-family: "Times New Roman", Times, serif;
+  color: Black;
+  text-align: center;
+}
+h1.title { 
+    font-size: 24px;
+  font-family: "Times New Roman", Times, serif;
+  color: Black;
+  text-align: center;
+}
+</style>
+
+# {.tabset .tabset-fade .tabset-pills}
+
+## __Introduction__
+
+### {.tabset .tabset-fade}
+
+
+><font size="2">
+<p>The objective of this group statistical report is to analyse the experimental Sudoku Puzzles dataset collected from an experiment conducted in Maynooth University compiled from 2009 to 2013.The dataset contains four types of Sudoku puzzles and the time associated to complete it. A correctly completed Sudoku puzzle will contain all six characters in each row, each column and each box of six cells. Sudoku puzzles are typically a 9 x 9 grid but here mini Sudoku puzzles, with a 6 x 6 grid, are used so that the puzzles can be completed in a short timeframe. The types of Sudoku puzzles differ only in the character required to be filled into each grid.</p>
+The types are:
+<p>1) Numbers <br />
+2) Letters <br />
+3) Greek Letters<br />
+4) Symbols <br />
+</p>
+<p>Three hypotheses tests has been carried out based on the dataset. The first hypotheses is to check how the type of Sudoku effects in completing the Sudoku successfully. The second hypotheses is to check how having previous experience of playing Sudoku impacts in successful completion of the puzzles. The third hypotheses is to check if there is any statistical difference in median survival time between the different levels of Sudoku using Survivial Analysis.A Visualisation Dashboard has been created in order to interpret the analysis visually using R Shiny and Tableau.</p>
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## __Data Cleaning and Manipulation__ 
+
+### {.tabset .tabset-fade}
+
+#### __Data Cleaning__ 
+```{r}
+suppressMessages(library(tidyverse))
+suppressMessages(library(coin))
+suppressMessages(library(survival))
+suppressMessages(library(survminer))
+suppressMessages(library(ggfortify))
+suppressMessages(library(shiny))
+
+```
+
+<p>The 3SudokuCombined.csv dataset has been imported to the current working directory and the dataset contains columns:<br />
+1) Class - Indicating class group from 1 to 8<br />
+2) Before1 - Have played Sudoku before: yes or no<br />
+3) Type - Type of Sudoku puzzle: Numbers, Greek, Letters or Symbols<br />
+4) Correct - Puzzle was correct: yes or no<br />
+5) Time1 - Time to completion: Mins:Secs<br />
+6) Mins - Time to completion: minutes component<br />
+7) Seconds - Time to completion: seconds component<br />
+8) Time2 - Time to completion: total seconds<br />
+9) Before2 - Have played Sudoku before: no, yes in last three months (Within 3 or Inside), yes but not in last three months (Out 3 or Outside)<br />
+10) Logic - Enjoy playing logic puzzles: yes, no, indifferent<br />  </p>
+<p>A glimpse of the dataset can be shown below:</p>
+
+```{r}
+sudoku<-read.csv("3SudokuCombined.csv", header=T, na.strings=c("","NA"),stringsAsFactors = F)
+
+sudoku<-as_tibble(sudoku)
+
+head(sudoku)
+
+
+```
+
+Columns "Class", "Correct" and "Type" have been changed to factors as they are categorical values and Time2 has been changed to numeric. From the dataset it is observed that there are some ambiguity regarding the spelling of "Types". For instance, some of the observation were recorded as "letter" instead of " Letters", "Number" instead of "Numbers" and "Symbol" instead of "Symbols. In order to avoid ambiguity, the types have been modified respectively. For the "Before2" column, "inside" and "outside" are changed to  "Within3" and "Out_3" respectively as these are basically same.
+
+```{r}
+# Class to factor
+
+sudoku$Class<-as.factor(sudoku$Class)
+
+# Response=Correct to factor
+
+sudoku$Correct<-factor(ifelse(sudoku$Correct=='Yes',1,0))
+
+
+# Time2=total time in sec (change it to numeric)
+
+sudoku$Time2<-suppressWarnings(as.numeric(sudoku$Time2))
+# Type to factor
+
+
+sudoku$Type<-ifelse(sudoku$Type=="Letter","Letters",sudoku$Type)
+sudoku$Type<-ifelse(sudoku$Type=="Number","Numbers",sudoku$Type)
+sudoku$Type<-ifelse(sudoku$Type=="Symbol","Symbols",sudoku$Type)
+
+sudoku$Type<-factor(sudoku$Type)
+#2 Cleaning before2 i.e. inside3 and within_3 are same and out_3 and ouside
+# are same
+
+sudoku$Before2<-ifelse(sudoku$Before2=="Inside","Within_3",sudoku$Before2)
+sudoku$Before2<-ifelse(sudoku$Before2=="Outside","Out_3",sudoku$Before2)
+
+```
+
+#### __Data Manipulation__
+<p>For the data manipulation part, we are filling the missing values of "Before1" column using the values in "Before2" column. If for instance, a player has not played Sudoku within or outside 3 months then definetly the player has not played Sudoku, hence making "Before1" column as No for the player and vice versa. Further if the value of "Before1" column is Yes, it has been classified into 1 or else 0 which gives us the information that there are 388 players who does not have experience in solving Sudoku Puzzles where as 1305 are having experience. </p>
+
+```{r}
+## Filling missing values of before1 using before2 details
+
+sudoku%>%
+  mutate(Before1=replace(Before1,
+                         is.na(Before1)&!is.na(Before2)&Before2=='No',
+                         'No')
+  )->sudoku     
+
+sudoku%>%
+  mutate(Before1=replace(Before1,
+                         is.na(Before1)&!is.na(Before2)&Before2!='No',
+                         'Yes')
+  )->sudoku 
+
+sudoku$Before1<-factor(ifelse(sudoku$Before1=='Yes',1,0))
+
+table(sudoku$Before1)
+```
+
+<p> As the dataset contains  Time1(Min:Sec), Mins and Seconds columns, giving us the information about the time taken to finish the Sudoku Puzzles, which are also in consolidated form in Time2 column, we have checked if its possible to impute missing values in Time2 column from these columns, but we couldn't impute any values and hence we dropped Mins, Seconds and Time1 columns.
+
+</p>
+```{r}
+#### Checking if missing null values in Time2 can be filled using Time1:Min:Sec
+
+check_time<-sudoku%>%filter(is.na(Time2),!is.na(Time1),!is.na(Mins),!is.na(Seconds))
+
+# As it returns zero rows so Time1,Mins and Seconds are not required columns so dropping it.
+
+# sudoku%>%select(-Time1,-Mins,-Seconds)->sudoku
+
+sudoku%>%dplyr::select(-Time1,-Mins,-Seconds)->sudoku
+
+
+
+#checking if there is any column filled with value "."
+
+l <- lapply(sudoku,function(x)which((x==".")==T))
+
+sudoku_missing<-sudoku[c(1302,1304,1499,1533,1548),]
+
+# We cannot impute anything for this . 
+
+
+
+# Trying to impute before2 using before1 , setting before2='No' if before1=0 
+
+sudoku%>%
+  mutate(Before2=replace(Before2,
+                         is.na(Before2)&!is.na(Before1)&Before1==0,
+                         'No')
+  )->sudoku
+# 
+# sudoku%>%filter(is.na(Before2)&!is.na(Before1)&Before1==0)
+```
+<p>Further missing values is checked in all the columns and it was observed that there are 26% of data missing in "Before2" column and 34.86% in "Logic" column, hence these columns has been dropped. After cleaning and manipulating the columns of the dataset, the preprocessing of the data is completed and we start with the modelling with the mentioned columns below:</p>
+
+```{r}
+
+perentage_before2<- sudoku%>%filter(is.na(Before2))%>%nrow *100 / nrow(sudoku)
+
+
+# Since around 26% of data is missing even after imputing, 
+# so we skip this column 
+
+percentage_logic<-sudoku%>%filter(is.na(Logic))%>%nrow *100 / nrow(sudoku)
+
+
+# Since around 34.86% of data is missing and we cannot impute this column,
+# so we skip this column 
+
+
+sudoku%>%dplyr::select(-6,-7)->sudoku
+
+head(sudoku)
+#sudoku%>%filter(is.na(Time2))%>%nrow *100 / nrow(sudoku)
+
+
+# Since around 6% of data is missing so we KEEP this column 
+
+```
+
+
+## __Data Analysis__
+### {.tabset .tabset-fade}
+#### __Variable Analysis__
+<p>In order to begin with our analysis, we first started with variable analysis, inter dependencies and summarised each types of Sudoku with their minimum, maximum, mean, median ,standard deviations of the completion of the puzzles. For each type of puzzles the number of successful and unsuccessful observations has been tabulated. Also the impact of previous experience and class with respect to correct solution of the puzzle is shown below</p>
+
+
+```{r}
+# Variable Analysis
+
+sudoku%>%filter(Correct==1)%>%
+  group_by(Type)%>%
+  summarise(min=fivenum(Time2,na.rm = T)[1],
+            Q1=fivenum(Time2,na.rm = T)[2],
+            median=fivenum(Time2,na.rm = T)[3],
+            Q3=fivenum(Time2,na.rm = T)[4],
+            max=fivenum(Time2,na.rm = T)[5],
+            mean=mean(Time2,na.rm = T),
+            iQR=IQR(Time2,na.rm = T),
+            SD=sd(Time2,na.rm = T))
+
+table(Type=sudoku$Type,Correct=sudoku$Correct) 
+table(Previous_Exp=sudoku$Before1,Correct=sudoku$Correct)
+table(Previous_Exp=sudoku$Class,Correct=sudoku$Correct)
+```
+<p>To find the dependecies between Type, Before1 and Class with the Correct column, which means we are finding how these variables are depending in the correct solution of the Sudoku, we have done Chi Square Test of Independence. It was observed that Type, Before1 and Class are dependent in correct solution of the Sudoku puzzles as the p-values for each of these tests were below 0.05.</p>
+
+```{r}
+####### Chi sq test of independence
+
+# correct vs type 
+# Chi Sq test of independence to check if there is any dependency between 
+# if sudoku was correct and sudoku type at 0.05 significant level
+
+
+
+chisq.test(sudoku$Type,sudoku$Correct)
+
+# pvalue<0.05, so there is evidence to prove that there exists dependency
+# between correct and sudoku type, This can be noticable
+# as we see that greek type has the lowest correct solutions
+
+# correct vs experience
+# Chi Sq test of independence to check if there is any dependency between 
+# if sudoku was correct and sudoku experience at 0.05 significant level
+
+
+
+chisq.test(sudoku$Before1,sudoku$Correct)
+
+# pvalue<0.05, so there is evidence to prove that there exists dependency
+# between correct and before hand experience, This can be noticable
+# as we see that those who played before got correct solutions more.
+
+
+# correct vs class
+# Chi Sq test of independence to check if there is any dependency between 
+# if sudoku was correct and class at 0.05 significant level
+
+
+
+
+chisq.test(sudoku$Class,sudoku$Correct)
+
+
+# pvalue<0.05, so there is evidence to prove that there exists dependency
+# between correct and sudoku class, This can be noticable
+# as we see that those who played before got correct solutions more.
+```
+
+#### __Hypotheses Testing__
+
+<p>The hypotheses for our analysis are:<br />
+First Hypotheses: Impact of previous experience on solving the puzzle successfully.<br />
+Ho: Before1 is not significant<br />
+HA: Before is Siginficant<br />
+
+Second Hypotheses: Impact of types pf Sudoku on solving the puzzle successfully<br />
+Ho: Type is not significant<br />
+HA: Type is Siginficant<br />
+
+Third Hypotheses: Survival Analysis<br />
+Ho: There is no statistical difference in median survival time between 4 different types of sudoku puzzle.<br />
+ 
+HA: This is statistical difference in median survival time between 4 different
+types of sudoku puzzle<br />
+
+For the analysis we have used Logistic Regression.
+Logistic Regression is one of the most used Machine Learning algorithms for binary classification. It is a simple Algorithm that is used as a performance baseline. It is the go-to method for binary classification. It gives a discrete binary outcome between 0 and 1.Logistic Regression measures the relationship between the dependent variable  and the one or more independent variables by estimating probabilities using it’s underlying logistic function.
+
+In our analysis we have taken all the possibilities and observed wether a variable is significant or not with respect to solving correct Sudokus. Hence, first we have based regression with single variables, i.e., before, type and class individually. Then we have based regression of correct sudoku with before and type, type and class, before and class.Then we have applied logistic regression for the full model, i.e., correct with before, type and class together. We have also checked the signifcance with respect to Intersect Model and Intercept Model. <br />
+
+From the observations following observations were made:<br />
+1) Class is not Significant for completing Sudoku successfully.<br />
+2) Having experience helps in succesfully completing Sudoku<br />
+3) Type of Sudoku is significant with respect to succesful completion.<br />
+
+</p>
+
+```{r}
+# library(epiDisplay)  
+
+# Logistic Regression on all variable except Time2 as we will do different test for Time2
+
+sudoku[-5]->sudoku_1
+
+na.omit(sudoku_1)->sudoku_1
+
+
+# Model Building and validations
+
+before  <-glm(Correct~Before1,data = sudoku_1,family="binomial")
+type    <-glm(Correct~Type    ,data = sudoku_1,family="binomial")
+class   <-glm(Correct~Class,data = sudoku_1,family="binomial")
+
+before_type  <-glm(Correct~Before1+Type,data = sudoku_1,family="binomial")
+type_class    <-glm(Correct~Type+Class,data = sudoku_1,family="binomial")
+class_before  <-glm(Correct~Class+Before1,data = sudoku_1,family="binomial")
+
+full<-glm(Correct~Before1+Type+Class,data = sudoku_1,family="binomial")
+
+intersect_model<-glm(Correct~Before1*Type*Class,data = sudoku_1,family="binomial")
+
+intercept<-glm(Correct~1,data = sudoku_1,family="binomial")
+
+# Model Bulding and variable significance testing
+
+# Hypothesis 1 : 
+# H0 : Intersection is not significant (Reduced model is better)
+# H1 : Intersection is significant (full model is better)
+
+anova(full,intersect_model, test = "LR")
+
+
+# This states Intersection is not significant and thus go with a reduced model(full)
+# -----------------------------------------------------------------
+
+# Hypothesis 2 : 
+# H0 : Class is not significant (Reduced model is better)
+# H1 : Class is significant (full model is better)
+
+anova(before_type,full, test = "LR")
+
+
+# This states class is not significant and thus go with a reduced model
+# -----------------------------------------------------------------
+# Hypothesis 3 : 
+# H0 : Type is not significant (Reduced model is better)
+# H1 : Type is significant (full model is better)
+
+anova(before,before_type, test = "LRT")
+
+# This states Type is significant and thus go with a full model
+
+# ------------------------------------------------------------------
+# Hypothesis 4 : 
+# H0 : Before1  is not significant (Reduced model is better)
+# H1 : Before1  is significant (full model is better)
+
+anova(type,before_type, test = "LRT")
+
+# This states Before1 is significant and thus go with a full model
+# ---------------------------------------------------------------------
+
+
+#Interpretation  
+summary(before_type)
+exp(before_type$coefficients)
+```
+Findings from the hypotheses testings:<br />
+First Hypotheses: The odds of successfully completing the Sudoku correctly were 9.81 times higher for 
+those who had played Sudoku before relative to those who had not played before. <br />
+Second Hypotheses: The odds of successfully completing the Sudoku correctly were 1.79 times higher for those who had played Sudoku of type "Letters" rather than "Greek".<br />
+The odds of successfully completing the Sudoku correctly were 1.99 times higher for those who had played Sudoku of type "Numbers" rather than "Greek".<br />
+The odds of successfully completing the Sudoku correctly were 1.79 times higher for 
+ those who had played Sudoku of type "Symbols" rather than "Greek",<br />
+ 
+Based on the Model Selection table it can also be said that Before1 and Type is the best fitted model as it has the least AIC value. 
+
+
+```{r}
+# Approach 2 of variable selection
+
+require(MuMIn) 
+model.sel(intercept,before,type,class,before_type,type_class,class_before,full,
+          intersect_model)
+remove(before)
+remove(type)
+remove(class)
+remove(type_class)
+remove(class_before)
+remove(full)
+remove(intercept)
+remove(intersect_model)
+remove(sudoku_1)
+remove(before_type)
+```
+
+<p>For the third Hypotheses we have used Survival Analysis.Time entries on worksheets with incorrect solutions contain information on the quantity of interest since they give LOWER bounds for true completion times.
+The continuous variable time is therefore referred to as right-censored.
+In our context below terms indicates:<br />
+a. Survival -> Puzzle has not yet correctly completed.<br />
+b. Death    -> Puzzle has correcly completed.<br />
+c. Censor point -> TIme of a person who completed puzzle incorrectly.<br />
+
+T -> Time of death(after correctly completing)<br />
+The survival function is a function that gives the probability that a patient,device, or other object of interest will survive beyond any specified time(t).
+
+
+</p>
+
+```{r,message=FALSE,warning=FALSE}
+############# Survival Analysis on Time2
+
+
+
+# Event: 1-> sucesfuly completed
+# 0-> not completed
+# 
+# Time2 is the survival time
+
+
+sudoku[c(1,2,3,4,5)]%>%as.data.frame->sudoku_survival
+
+
+fct_explicit_na(sudoku_survival$Before1)->sudoku_survival$Before1
+
+as.character(sudoku_survival$Correct)%>%as.numeric->sudoku_survival$Correct
+
+surv<- Surv(time = sudoku_survival$Time2,event = sudoku_survival$Correct)
+
+fit2 <-survfit(surv ~ Type, data = sudoku_survival)
+
+
+```
+<p>The plot shows the estimated survival probabilities(y-axis) versus time (x-axis) for each Sudoku type. 
+Censored data points are indicated by a + symbol and the probability of completing the Sudoku puzzle correctly within time. From the fit2 function we can see correctly completing sudoku given the sudoku type
+is 125 seconds for Numbers, 149 seconds for Letters, 205 seconds for Symbols, while 246 seconds for Greek, these unbiased median estimates are all higher than the biased medians presented for the subset of correct Sudokus only</p>
+
+```{r}
+
+res<-fortify(fit2)
+
+ggplot(data = res, aes(x = time, y = surv, color = strata)) +
+  geom_line() + 
+  # plot censor marks
+  geom_point(aes(shape = factor(ifelse(n.censor >= 1, 1, NA)))) + 
+  # format censor shape as "+"
+  scale_shape_manual(values = 3) + 
+  # hide censor legend 
+  guides(shape = "none") +ggtitle("Kaplan-Meier curves")
+
+
+```
+<p>Third Hypotheses:Based on the logrank test, the null hypotheses can be rejected as the p-value is less than 0.05. Therefore, there is a statistical difference in median survival time between different types of Sudoku.</p>
+
+```{r}
+logrank_test(surv~Type, data=sudoku_survival)
+
+```
+
+
+## __Sudoko Visualisation__ 
+
+### {.tabset .tabset-fade}
+
+#### __Visualisation__ 
+
+
+
+```{r}
+
+thumbnail_label <- function(image, label, content, button_link, button_label ){
+  div(class = "row",
+      div(class = "col-sm-14 col-md-12",
+          div(class = "thumbnail",
+              img(src = image, alt = "...",
+                  div(class = "caption", h3(label), p(content), p(a(href = button_link, class = 'btn btn-primary', role = 'button', button_label)))))))
+  
+  
+}
+
+
+ thumbnail_label(image = 'tab.png', label = 'Sudoku Dashboard',content = 'Click on the button below to access the dashboard',
+ button_link = 'https://public.tableau.com/profile/jak94#!/vizhome/SudokuProjectTableauWorkbook/Viz1_1', button_label = 'Sudoku Dashboard')
+
+```
+
+
+__The TABLEAU DASHBOARD can be viewed by clicking the button above__
+
+<p><u>__Dashboard 1__  (Clubbed explanation into 2 divisions)</u><br />
+Time Analysis:<br />
+This graph is built upon the Class, Type and Time where dimension Time is based on the above selection which is slowest, average, fastest Sudoku puzzle solver.
+Furthermore analysing the time over the box plot, Type is plotted vs Time and categorized by Player with experience or not (Green and Red respectively). The following insights from the graph clearly explains us that Type Letter and Number which has its outlier/mishandled data with time of 765 and 910 seconds respectively and falls under the category of player with experienced in playing Sudoku earlier. 
+Solved Puzzle and Player Experience:
+The following two graph was built using the dimension correctness and player experience.
+At each type, the bar graph represents the total count of players who participated in solving the puzzle and completed correct successfully.
+The overall count of the participant is calculated across its each Type and aggregated its value based on the correctness and experience. The insight is clear that player with prior experience had solved more correct puzzle than the player with no experience and Greek was considered to be tough than any other type puzzle.</p>
+<p><u>__Dashboard 2__ (Graphs explanation order from top to bottom)</u><br />
+Player with experience at each class variable
+The following graphs are developed with dimension class and player’s experience, the primary graph gives the overall count for the player participated in solving Sudoku and categorized by correctness of the puzzle.
+A histogram is built based on Time variable with bin size of 50 sec for only participants solved correct and it is plotted across the total number of participants. The insights projected that between 100-150 sec, majority of the participants solved the puzzle rightly and very few count of 23 had solved within 50 sec.
+At each class based on the Sudoku puzzle correctness and player’s experience the following graph was plotted with provides the total count and percent of the total based on each class.<br />
+
+
+</p>
+
+## __Conclusion__ 
+
+### {.tabset .tabset-fade}
+
+
+<p> The analysis gives us clear indications supporting the three hypotheses.The plots are interactive and can be drilled down to provide detail that adds to the supporting evidence of any conclusions. From the hypotheses it can be concluded that having experience on certain type of Sudoku have significant chances of solving it correctly.<br />
+Interestingly enough, Sudokus with Greek Letters have the highest success percentage that had no previous experience but had the lowest success rate of players that had previous experience. Of players that had experience, Numbers came top (83.9%), Letters (82.6%), Symbols (80.6%) and then Greek (72.6%). The success rates of players with no previous experience are Greek (27.4%), Symbols (19.4%), Letters (17.4%) and then Numbers (16.1%). The first hypotheses holds that type is influencing the final solution as there are differing success rates across the Types.<br />
+Previous experience is clearly influencing success rates. Those with previous experience were over 90% successful in completing the puzzle, whereas the range of successfully completing the puzzle of those with no experience was between 38.5% and 50.5%. The second hypotheses does hold that previous experience is  significant in successfully completing the Sudoku puzzle and the alternative hypotheses is supported by the marked difference between the success rates.<br />
+The logrank_test() method plot shows the estimated survival probabilities (y-axis) versus time (x-axis) for each Sudoku type. The resulting p-value is low and we can accept the alternative hypothesis and say that there is statistical difference in median survival time between 4 different types of sudoku puzzle.</p>
+<br />
+<br />
+<br />
+<br />
+<br />
+<br />
+
+<u>References:</u>
+
+1. Brophy and Hahn 2014 (Journal of Statistics Education, Volume 22, 2014 - Issue 1)
